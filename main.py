@@ -49,6 +49,10 @@ models = {
 }
 
 # Trenowanie, ocena i zapis modeli
+# PRZECZYTAJ !!!! 
+# Tu jest zrobiona pętla trenujące która działa tak
+# Jest lista modeli i ta pętla bierze wszystkie itemy z tej listy i trenuje żeby w przypadku projektu z większą ilością modeli zamiast pisać kod do trenowania każdego modelu z osobna poprostu dodawało go do listy i pętla trenowała każdy model
+
 for name, model in models.items():
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
