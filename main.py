@@ -1,77 +1,86 @@
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import accuracy_score
-import pickle
+import sys
+from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QLineEdit, QLabel, QPushButton
+from model import load_model, load_label_encoders, make_prediction
 
-# Wczytanie danych
-df = pd.read_csv('train.csv')
+class PredictionApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Predykcja Satysfakcji Klienta")
+        self.setGeometry(100, 100, 400, 500)
+        self.model = load_model("random_forest")  # Możesz też użyć np. "knn"
+        self.encoders = load_label_encoders()
+        self.init_ui()
 
-# Zamiana nazw kolumn na małe litery
-df.columns = [col.lower() for col in df.columns]
+    def init_ui(self):
+        layout = QVBoxLayout()
+        self.result_label = QLabel("Wprowadź dane i kliknij przycisk.")
+        layout.addWidget(self.result_label)
 
-# Imputacja brakujących wartości (bez inplace)
-for col in df.columns:
-    if df[col].isnull().any():
-        if df[col].dtype in ['float64', 'int64']:
-            df[col] = df[col].fillna(df[col].median())
-        else:
-            df[col] = df[col].fillna(df[col].mode()[0])
+        self.inputs = {}
+        fields = [
+            ("gender", "Płeć (Male/Female)"),
+            ("customer type", "Typ klienta (Loyal/Disloyal)"),
+            ("type of travel", "Typ podróży (Business/Personal)"),
+            ("class", "Klasa (Economy/Business/...)"),
+            ("age", "Wiek (np. 45)"),
+            ("flight distance", "Dystans lotu (np. 1200)")
+        ]
 
-# Kolumny kategoryczne do enkodowania
-cat_cols = ['gender', 'customer type', 'type of travel', 'class', 'satisfaction']
-label_encoders = {}
+        for key, placeholder in fields:
+            line = QLineEdit()
+            line.setPlaceholderText(placeholder)
+            layout.addWidget(line)
+            self.inputs[key] = line
 
-# Label encoding dla kolumn kategorycznych
-for col in cat_cols:
-    le = LabelEncoder()
-    df[col] = le.fit_transform(df[col])
-    label_encoders[col] = le
+        self.predict_button = QPushButton("Przewiduj")
+        self.predict_button.clicked.connect(self.on_predict)
+        layout.addWidget(self.predict_button)
 
-# Przygotowanie danych (usuniecie kolumny 'id' i wyznaczenie X i y)
-X = df.drop(columns=['id', 'satisfaction'])
-y = df['satisfaction']
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
 
-# Podział na zbiór treningowy i testowy
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=123
-)
+    def on_predict(self):
+        try:
+            data = {}
+            for key, widget in self.inputs.items():
+                val = widget.text().strip()
+                if key in self.encoders:
+                    data[key] = val  # string dla encodera
+                else:
+                    data[key] = float(val)  # liczba
+            result = make_prediction(self.model, self.encoders, data)
+            self.result_label.setText(f"Wynik: {result}")
+        except Exception:
+            self.result_label.setText("Błąd: sprawdź poprawność danych.")
 
-# Definicja modeli klasyfikacyjnych
-models = {
-    "knn": KNeighborsClassifier(n_neighbors=5),
-    "decision_tree": DecisionTreeClassifier(),
-    "random_forest": RandomForestClassifier(n_estimators=100),
-}
+    def on_predict(self):
+        try:
+            data = {}
+            for key, widget in self.inputs.items():
+                val = widget.text().strip()
+                if not val:
+                    raise ValueError(f"Pole '{key}' jest puste.")
 
-# Trenowanie, ocena i zapis modeli
-# PRZECZYTAJ !!!! 
-# Tu jest zrobiona pętla trenujące która działa tak
-# Jest lista modeli i ta pętla bierze wszystkie itemy z tej listy i trenuje żeby w przypadku projektu z większą ilością modeli zamiast pisać kod do trenowania każdego modelu z osobna poprostu dodawało go do listy i pętla trenowała każdy model
+                if key in self.encoders:
+                    if val not in self.encoders[key].classes_:
+                        raise ValueError(
+                            f"Niepoprawna wartość dla '{key}': {val}. Dozwolone: {list(self.encoders[key].classes_)}"
+                        )
+                    data[key] = val
+                else:
+                    data[key] = float(val)
 
-for name, model in models.items():
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-    print(f"{name} accuracy: {acc:.4f}")
-    with open(f"{name}_model.pkl", "wb") as f:
-        pickle.dump(model, f)
+            result = make_prediction(self.model, self.encoders, data)
+            self.result_label.setText(f"Wynik: {result}")
+        except ValueError as ve:
+            self.result_label.setText(f"Błąd: {ve}")
+        except Exception as e:
+            self.result_label.setText(f"Błąd ogólny: {e}")
 
-# Regresja liniowa (zaokrąglona do najbliższej klasy)
-linreg = LinearRegression()
-linreg.fit(X_train, y_train)
-y_pred_lr = linreg.predict(X_test)
-y_pred_lr_rounded = y_pred_lr.round().clip(0, y.nunique() - 1).astype(int)
-acc_lr = accuracy_score(y_test, y_pred_lr_rounded)
-print(f"linear_regression accuracy (after rounding): {acc_lr:.4f}")
 
-with open("linear_regression_model.pkl", "wb") as f:
-    pickle.dump(linreg, f)
-
-# Zapis Label Encoderów
-with open("label_encoders.pkl", "wb") as f:
-    pickle.dump(label_encoders, f)
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = PredictionApp()
+    window.show()
+    sys.exit(app.exec())
